@@ -60,7 +60,7 @@ class SourceClone:
                     if src.startswith("http://") or src.startswith("https://"):
                         urls.append(src) # content from a full URL 
                     else:
-                        urls.append(self.url + src) # content from a relative path (/file/code.js)
+                        #urls.append(self.url + src) # content from a relative path (/file/code.js)
                         urls.append(urljoin(self.url, src))
                 else:
                     print(js) # <script></script>
