@@ -1,4 +1,4 @@
-import os, aiohttp, aiofiles, asyncio
+import os, aiohttp, aiofiles, asyncio, platform
 from urllib.parse import urlparse, urljoin
 from asyncinit import asyncinit
 from bs4 import BeautifulSoup, SoupStrainer
@@ -8,21 +8,31 @@ from bs4 import BeautifulSoup, SoupStrainer
 class SourceClone:
     async def __init__(self, url):
         if not url.startswith(("http://", "https://")):
-            raise ValueError("URL must start with http:// or https://")
+            raise ValueError("Url must start with http:// or https://")
+
         
         self.url = url
         self.no_prefix_url = str(url).replace("https://", "").replace("http://", "").replace("/", "-")
         
         self.create_site_main_directory()
 
+        self.inline_count = 0
         await self.save_main_source(self.no_prefix_url)
         await self.sort_js_scripts(self.no_prefix_url)
+        print('done')
     
-    def create_site_main_directory(self):    
+    def create_site_main_directory(self):
         return os.makedirs(
-            os.path.join("sources", str(self.url).replace("https://", "").replace("http://", "").replace("/", "-")),
-            exist_ok=True
+            os.path.join(
+                "sources",
+                str(self.url)
+                .replace("https://", "")
+                .replace("http://", "")
+                .replace("/", "-"),
+            ),
+            exist_ok=True,
         )
+
         
     async def save_main_source(self, path) -> str:
         async with aiohttp.ClientSession() as session:
@@ -60,14 +70,27 @@ class SourceClone:
                     if src.startswith("http://") or src.startswith("https://"):
                         urls.append(src) # content from a full URL 
                     else:
-                        #urls.append(self.url + src) # content from a relative path (/file/code.js)
+                        urls.append(self.url + src) # content from a relative path (/file/code.js)
                         urls.append(urljoin(self.url, src))
                 else:
-                    print(js) # <script></script>
+                    if not os.path.isdir(f"sources/{path}/inlines"):
+                        os.mkdir(f"sources/{path}/inlines")
+                    
+                    async with aiofiles.open(f"sources/{path}/inlines/inline-file-{self.inline_count}.js", "w", encoding="utf-8") as inline:
+                        self.inline_count += 1
+                        await inline.write(str(js.text))
+                        
+                        if platform.system() in ["Darwin", "Linux"]:
+                            os.system("clear")
+                        else:
+                            os.system("cls")
+                            
+                        print(f"[✓] Stored inline script {self.inline_count}")
+                    #print(js) # <script></script>
 
                             
             async with aiohttp.ClientSession() as session:
-                tasks = [self.fetch(session, url) for url in urls]       
+                tasks = [self.fetch(session, url) for url in urls]   
                 scripts = await asyncio.gather(*tasks)
                 
                 assert len(scripts) == len(urls), "Index Mismatch between fetched scripts and URLs!"
