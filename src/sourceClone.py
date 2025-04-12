@@ -1,3 +1,5 @@
+from random_user_agent.user_agent import UserAgent
+from random_user_agent.params import SoftwareName, OperatingSystem
 import os, aiohttp, aiofiles, asyncio, platform
 from urllib.parse import urlparse, urljoin
 from asyncinit import asyncinit
@@ -10,13 +12,13 @@ class SourceClone:
         if not url.startswith(("http://", "https://")):
             raise ValueError("Url must start with http:// or https://")
 
-        
         self.url = url
-        self.no_prefix_url = str(url).replace("https://", "").replace("http://", "").replace("/", "-")
+        self.no_prefix_url = str(url).replace("https://", "").replace("http://", "").replace("/", "-") # works as our filepath also
         
         self.create_site_main_directory()
 
         self.inline_count = 0
+        self.script_count = 0
         await self.save_main_source(self.no_prefix_url)
         await self.sort_js_scripts(self.no_prefix_url)
         print('done')
@@ -33,10 +35,18 @@ class SourceClone:
             exist_ok=True,
         )
 
+    def random_user_agent(self) -> str:
+        software_names = [SoftwareName.CHROME.value]
+        operating_systems = [OperatingSystem.WINDOWS.value, OperatingSystem.LINUX.value]   
+
+        user_agent_rotator = UserAgent(software_names=software_names, operating_systems=operating_systems, limit=100)
+        return user_agent_rotator.get_random_user_agent()
+        
         
     async def save_main_source(self, path) -> str:
         async with aiohttp.ClientSession() as session:
-            async with session.get(self.url) as code:
+            user_agent = self.random_user_agent()
+            async with session.get(self.url, headers={ "User-Agent": user_agent }) as code:
                 try:
                     code.raise_for_status()
                     code = await code.text()
@@ -48,12 +58,23 @@ class SourceClone:
             
     async def fetch(self, session, url):
         try:
-            async with session.get(url) as res:
+            user_agent = self.random_user_agent()
+            async with session.get(url, headers={ "User-Agent": user_agent }) as res:
                 return await res.text()
         except Exception as e:
             print(f"Error fetching js file, {e}")
         return None
     
+
+    def log_script_count(self):
+        if platform.system() in ["Darwin", "Linux"]:
+            os.system("clear")
+        else:
+            os.system("cls")
+                            
+        print(f"[✓] Stored {self.inline_count} inline scripts")
+        print(f"[✓] Stored {self.script_count} scripts")
+        
     async def sort_js_scripts(self, path):
         try:
             content = None
@@ -70,7 +91,7 @@ class SourceClone:
                     if src.startswith("http://") or src.startswith("https://"):
                         urls.append(src) # content from a full URL 
                     else:
-                        urls.append(self.url + src) # content from a relative path (/file/code.js)
+                        #urls.append(self.url + src) # content from a relative path (/file/code.js)
                         urls.append(urljoin(self.url, src))
                 else:
                     if not os.path.isdir(f"sources/{path}/inlines"):
@@ -80,14 +101,8 @@ class SourceClone:
                         self.inline_count += 1
                         await inline.write(str(js.text))
                         
-                        if platform.system() in ["Darwin", "Linux"]:
-                            os.system("clear")
-                        else:
-                            os.system("cls")
-                            
-                        print(f"[✓] Stored inline script {self.inline_count}")
+                        await self.log_script_count()
                     #print(js) # <script></script>
-
                             
             async with aiohttp.ClientSession() as session:
                 tasks = [self.fetch(session, url) for url in urls]   
@@ -99,7 +114,9 @@ class SourceClone:
                     filepath = f"sources/{path}/{filename}"
                     async with aiofiles.open(filepath , "w",encoding="utf-8") as jsfile:
                         if scripts[url_idx] is not None:
-                            await jsfile.write(scripts[url_idx])   
+                            await jsfile.write(scripts[url_idx])
+                            self.script_count += 1
+                            await self.log_script_count()
                         else:
                             print(f"skipping url {url}, error occured")                       
         except Exception as e:
