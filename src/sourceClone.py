@@ -1,14 +1,16 @@
-from random_user_agent.user_agent import UserAgent
+import aiohttp.http_exceptions
 from random_user_agent.params import SoftwareName, OperatingSystem
-import os, aiohttp, aiofiles, asyncio, platform
+import os, aiohttp, aiofiles, asyncio, platform, threading
+from random_user_agent.user_agent import UserAgent
+from bs4 import BeautifulSoup, SoupStrainer
 from urllib.parse import urlparse, urljoin
 from asyncinit import asyncinit
-from bs4 import BeautifulSoup, SoupStrainer
+from pyppeteer import launch
 
 
 @asyncinit
 class SourceClone:
-    async def __init__(self, url):
+    async def __init__(self, url: str, static: bool = None):
         if not url.startswith(("http://", "https://")):
             raise ValueError("Url must start with http:// or https://")
 
@@ -42,19 +44,34 @@ class SourceClone:
         user_agent_rotator = UserAgent(software_names=software_names, operating_systems=operating_systems, limit=100)
         return user_agent_rotator.get_random_user_agent()
         
+    async def use_headless_browser(self, save: bool = None, path: str = None) -> bool:
+        if save:
+            browser = await launch({"headless": True})
+            page = await browser.newPage()
+            await page.goto(self.url)
+            code = await page.content()
+            async with aiofiles.open(f"sources/{path}/index.html", "w", encoding="utf-8") as index:
+                await index.write(code)
+            await browser.close()
+            return True
+
         
     async def save_main_source(self, path) -> str:
-        async with aiohttp.ClientSession() as session:
-            user_agent = self.random_user_agent()
-            async with session.get(self.url, headers={ "User-Agent": user_agent }) as code:
-                try:
+        try:
+            async with aiohttp.ClientSession() as session:
+                user_agent = self.random_user_agent()
+                async with session.get(self.url, headers={ "User-Agent": user_agent }) as code:
                     code.raise_for_status()
                     code = await code.text()
                     async with aiofiles.open(f"sources/{path}/index.html", "w", encoding="utf-8") as index:
                         await index.write(code)
                     return code
-                except Exception as e:
-                    print(f"An error occured in saving the main .html : {e}")
+        except (Exception, aiohttp.http_exceptions.HttpBadRequest) as e:
+            print(f"err in saving the main .html : {e}")
+            print("retrying...")
+            return await self.use_headless_browser(save=True, path=path)
+            
+                    
             
     async def fetch(self, session, url):
         try:
@@ -101,7 +118,7 @@ class SourceClone:
                         self.inline_count += 1
                         await inline.write(str(js.text))
                         
-                        await self.log_script_count()
+                        self.log_script_count()
                     #print(js) # <script></script>
                             
             async with aiohttp.ClientSession() as session:
@@ -116,7 +133,7 @@ class SourceClone:
                         if scripts[url_idx] is not None:
                             await jsfile.write(scripts[url_idx])
                             self.script_count += 1
-                            await self.log_script_count()
+                            self.log_script_count()
                         else:
                             print(f"skipping url {url}, error occured")                       
         except Exception as e:
