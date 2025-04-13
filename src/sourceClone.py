@@ -46,7 +46,7 @@ class SourceClone:
     async def use_tls_client(self, save: bool = None, path: str = None) -> bool:
         try:
             if save:
-                code = self.session.get(self.url, headers={"User-Agent": self.user_agent})
+                code = await asyncio.to_thread(self.session.get, self.url,  headers={"User-Agent": self.user_agent})
                 async with aiofiles.open(f"sources/{path}/index.html", "w", encoding="utf-8") as index:
                     await index.write(code.text)
         except (Exception, tls_client.exceptions.TLSClientExeption) as e:
@@ -61,9 +61,6 @@ class SourceClone:
 
                 res = await page.goto(self.url)
                 code = await page.content()
-                print(res.status)
-                print(code)
-
                 if res.status not in [307, 403] and "Just a moment..." not in code:
                     async with aiofiles.open(f"sources/{path}/index.html", "w", encoding="utf-8") as index:
                         await index.write(code)
@@ -150,10 +147,14 @@ class SourceClone:
                 
                 assert len(scripts) == len(urls), "Index Mismatch between fetched scripts and URLs!"
                 for url_idx, url in enumerate(urls):
-                    filename = url.replace("https://", "").replace("http://", "").replace("/", "_").replace("?", "_").replace("&", "_") + ".js"
+                    # cleanup
+                    filename = url.replace("https://", "").replace("http://", "").replace("/", "_").replace("?", "_").replace("&", "_")
+                    if not filename.endswith(".js"):
+                        filename += ".js"
                     
                     if len(filename) > max_filename_length:
                         filename = filename[:max_filename_length - 3] + ".js"
+                    #end of cleanup
                     
                     filepath = f"sources/{path}/{filename}"
                     async with aiofiles.open(filepath , "w",encoding="utf-8") as jsfile:
