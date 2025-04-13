@@ -4,6 +4,7 @@ import os, aiohttp, aiofiles, asyncio, platform, threading
 from random_user_agent.user_agent import UserAgent
 from bs4 import BeautifulSoup, SoupStrainer
 from urllib.parse import urlparse, urljoin
+from pyppeteer_stealth import stealth
 from asyncinit import asyncinit
 from pyppeteer import launch
 
@@ -21,6 +22,7 @@ class SourceClone:
 
         self.inline_count = 0
         self.script_count = 0
+        self.user_agent = self.random_user_agent()
         await self.save_main_source(self.no_prefix_url)
         await self.sort_js_scripts(self.no_prefix_url)
         print('done')
@@ -45,21 +47,28 @@ class SourceClone:
         return user_agent_rotator.get_random_user_agent()
         
     async def use_headless_browser(self, save: bool = None, path: str = None) -> bool:
-        if save:
-            browser = await launch({"headless": True})
-            page = await browser.newPage()
-            await page.goto(self.url)
-            code = await page.content()
-            async with aiofiles.open(f"sources/{path}/index.html", "w", encoding="utf-8") as index:
-                await index.write(code)
+        try:
+            if save:
+                browser = await launch({"headless": True})
+                page = await browser.newPage()
+                await stealth(page)
+
+                await page.goto(self.url)
+                code = await page.content()
+                async with aiofiles.open(f"sources/{path}/index.html", "w", encoding="utf-8") as index:
+                    await index.write(code)
+                return True
+        except Exception as e:
+            print(f"Error in headless browser: {e}")
+        finally:
             await browser.close()
-            return True
+        
 
         
     async def save_main_source(self, path) -> str:
         try:
             async with aiohttp.ClientSession() as session:
-                user_agent = self.random_user_agent()
+                user_agent = self.user_agent
                 async with session.get(self.url, headers={ "User-Agent": user_agent }) as code:
                     code.raise_for_status()
                     code = await code.text()
@@ -68,14 +77,15 @@ class SourceClone:
                     return code
         except (Exception, aiohttp.http_exceptions.HttpBadRequest) as e:
             print(f"err in saving the main .html : {e}")
-            print("retrying...")
+            print("retrying on secure headless browser...")
             return await self.use_headless_browser(save=True, path=path)
+        
             
                     
             
     async def fetch(self, session, url):
         try:
-            user_agent = self.random_user_agent()
+            user_agent = self.user_agent
             async with session.get(url, headers={ "User-Agent": user_agent }) as res:
                 return await res.text()
         except Exception as e:
