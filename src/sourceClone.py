@@ -1,7 +1,7 @@
-import aiohttp.http_exceptions
+import os, aiohttp, aiofiles, asyncio, platform, threading, aiohttp.http_exceptions, pyppeteer, pyppeteer.errors, time
 from random_user_agent.params import SoftwareName, OperatingSystem
-import os, aiohttp, aiofiles, asyncio, platform, threading
 from random_user_agent.user_agent import UserAgent
+import tls_client, random, tls_client.exceptions
 from bs4 import BeautifulSoup, SoupStrainer
 from urllib.parse import urlparse, urljoin
 from pyppeteer_stealth import stealth
@@ -17,7 +17,7 @@ class SourceClone:
 
         self.url = url
         self.no_prefix_url = str(url).replace("https://", "").replace("http://", "").replace("/", "-") # works as our filepath also
-        
+        self.session = tls_client.Session(client_identifier="Chrome_120")
         self.create_site_main_directory()
 
         self.inline_count = 0
@@ -41,10 +41,19 @@ class SourceClone:
 
     def random_user_agent(self) -> str:
         software_names = [SoftwareName.CHROME.value]
-        operating_systems = [OperatingSystem.WINDOWS.value, OperatingSystem.LINUX.value]   
+        operating_systems = [OperatingSystem.WINDOWS.value, OperatingSystem.LINUX.value] 
 
         user_agent_rotator = UserAgent(software_names=software_names, operating_systems=operating_systems, limit=100)
         return user_agent_rotator.get_random_user_agent()
+    
+    async def use_tls_client(self, save: bool = None, path: str = None) -> bool:
+        try:
+            if save:
+                code = self.session.get(self.url, headers={"User-Agent": self.user_agent})
+                async with aiofiles.open(f"sources/{path}/index.html", "w", encoding="utf-8") as index:
+                    await index.write(code.text)
+        except (Exception, tls_client.exceptions.TLSClientExeption) as e:
+            print(f"An error occured in tls-client: {e}")
         
     async def use_headless_browser(self, save: bool = None, path: str = None) -> bool:
         try:
@@ -53,15 +62,21 @@ class SourceClone:
                 page = await browser.newPage()
                 await stealth(page)
 
-                await page.goto(self.url)
+                res = await page.goto(self.url)
                 code = await page.content()
-                async with aiofiles.open(f"sources/{path}/index.html", "w", encoding="utf-8") as index:
-                    await index.write(code)
-                return True
-        except Exception as e:
+                if res.status not in [307, 403] and "Just a moment..." not in code:
+                    async with aiofiles.open(f"sources/{path}/index.html", "w", encoding="utf-8") as index:
+                        await index.write(code)
+                    return True
+                else:
+                    print("Cloudflare captcha detected, attempting to bypass...")
+                    await self.use_tls_client(save=True, path=path)
+                    return False
+        except (pyppeteer.errors.TimeoutError, pyppeteer.errors.NetworkError) as e:
             print(f"Error in headless browser: {e}")
         finally:
-            await browser.close()
+            if browser:
+                await browser.close()
         
 
         
