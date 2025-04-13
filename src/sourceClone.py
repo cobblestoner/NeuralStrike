@@ -25,16 +25,13 @@ class SourceClone:
         self.user_agent = self.random_user_agent()
         await self.save_main_source(self.no_prefix_url)
         await self.sort_js_scripts(self.no_prefix_url)
-        print('done')
+        print("done")
     
     def create_site_main_directory(self):
         return os.makedirs(
             os.path.join(
                 "sources",
-                str(self.url)
-                .replace("https://", "")
-                .replace("http://", "")
-                .replace("/", "-"),
+                self.no_prefix_url
             ),
             exist_ok=True,
         )
@@ -64,6 +61,9 @@ class SourceClone:
 
                 res = await page.goto(self.url)
                 code = await page.content()
+                print(res.status)
+                print(code)
+
                 if res.status not in [307, 403] and "Just a moment..." not in code:
                     async with aiofiles.open(f"sources/{path}/index.html", "w", encoding="utf-8") as index:
                         await index.write(code)
@@ -94,11 +94,8 @@ class SourceClone:
             print(f"err in saving the main .html : {e}")
             print("retrying on secure headless browser...")
             return await self.use_headless_browser(save=True, path=path)
-        
             
-                    
-            
-    async def fetch(self, session, url):
+    async def fetch(self, session, url, max_filename_length: int = 250):
         try:
             user_agent = self.user_agent
             async with session.get(url, headers={ "User-Agent": user_agent }) as res:
@@ -147,12 +144,17 @@ class SourceClone:
                     #print(js) # <script></script>
                             
             async with aiohttp.ClientSession() as session:
+                max_filename_length = 250
                 tasks = [self.fetch(session, url) for url in urls]   
                 scripts = await asyncio.gather(*tasks)
                 
                 assert len(scripts) == len(urls), "Index Mismatch between fetched scripts and URLs!"
                 for url_idx, url in enumerate(urls):
                     filename = url.replace("https://", "").replace("http://", "").replace("/", "_").replace("?", "_").replace("&", "_") + ".js"
+                    
+                    if len(filename) > max_filename_length:
+                        filename = filename[:max_filename_length - 3] + ".js"
+                    
                     filepath = f"sources/{path}/{filename}"
                     async with aiofiles.open(filepath , "w",encoding="utf-8") as jsfile:
                         if scripts[url_idx] is not None:
