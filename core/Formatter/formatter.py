@@ -33,7 +33,7 @@ class beautify:
         use_path = os.path.join(self.final_filepath, fp)
 
         
-        if os.path.isdir(use_path) or not use_path.endswith((".html", ".js")):
+        if os.path.isdir(use_path) or use_path.endswith(".html"):
             return
         
         
@@ -44,4 +44,5 @@ class beautify:
             await file.write(
                 jsbeautifier.beautify(file_content, self.options)
             )
+            
         return True
